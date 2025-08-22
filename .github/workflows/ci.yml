@@ -1,0 +1,276 @@
+name: Django CI
+
+on: [push, pull_request]
+
+env:
+  SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+  DEBUG: "False"
+
+  POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
+  POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}
+  POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+  POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+  POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+
+
+  REDIS_HOST: localhost
+  CELERY_BROKER_URL: redis://localhost:6379/0
+  CELERY_RESULT_BACKEND: redis://localhost:6379/0
+
+  EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend
+  EMAIL_HOST: smtp.example.com
+  EMAIL_PORT: "587"
+  EMAIL_HOST_USER: user@example.com
+  EMAIL_HOST_PASSWORD: password
+  EMAIL_USE_TLS: "True"
+  EMAIL_USE_SSL: "False"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB || 'test_db' }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER || 'postgres' }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD || 'postgres' }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:6
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: 1.5.1
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Install dependencies
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install --no-interaction --no-ansi
+
+      - name: Run flake8
+        run: |
+          echo -e "[flake8]\nmax-line-length = 120\nexclude = .venv" > .flake8
+          poetry run flake8 .
+
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER || 'postgres' }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD || 'postgres' }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB || 'test_db' }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:6
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: 1.5.1
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v3
+        with:
+          path: .venv
+          key: poetry-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            poetry-${{ runner.os }}-
+
+      - name: Install dependencies with Poetry
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install --no-interaction --no-ansi
+
+      - name: Debug DB connection
+        run: |
+          echo "DB Config:"
+          echo "Host: $POSTGRES_HOST"
+          echo "Port: $POSTGRES_PORT"
+          echo "User: $POSTGRES_USER"
+          echo "DB: $POSTGRES_DB"
+          echo "Password: ${POSTGRES_PASSWORD:0:1}..." 
+
+      - name: Test PostgreSQL connection
+        run: |
+          PGPASSWORD=${{ secrets.POSTGRES_PASSWORD || 'postgres' }} \
+          psql -h localhost -p 5432 -U ${{ secrets.POSTGRES_USER || 'postgres' }} -d ${{ secrets.POSTGRES_DB || 'test_db' }} -c "SELECT 1"
+
+      - name: Run migrations
+        env:
+          DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}  # Добавьте это
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB || 'test_db' }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER || 'postgres' }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD || 'postgres' }}
+        run: poetry run python manage.py migrate
+
+      - name: Run tests
+        env:
+          DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB || 'test_db' }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER || 'postgres' }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD || 'postgres' }}  
+        run: poetry run python manage.py test
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+
+      - name: Build Docker image
+        run: docker build -t ${{ secrets.DOCKER_HUB_USERNAME }}/lsm-system-drf:${{ github.sha }} .
+
+      - name: Push Docker image to Docker Hub
+        run: docker push ${{ secrets.DOCKER_HUB_USERNAME }}/lsm-system-drf:${{ github.sha }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Debug outputs
+        run: |
+          echo "DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}"
+          echo "GITHUB_SHA: ${{ github.sha }}"
+
+      - name: Validate Secrets
+        run: |
+          echo "Проверяем наличие всех секретов:"
+          secrets=(
+            "DJANGO_SECRET_KEY:${{ secrets.DJANGO_SECRET_KEY }}"
+            "DOCKER_HUB_USERNAME:${{ secrets.DOCKER_HUB_USERNAME }}"
+            "DEPLOY_SSH_KEY:${{ secrets.DEPLOY_SSH_KEY }}"
+            "DEPLOY_SSH_USER:${{ secrets.DEPLOY_SSH_USER }}"
+            "DEPLOY_SERVER_IP:${{ secrets.DEPLOY_SERVER_IP }}"
+            "POSTGRES_DB:${{ secrets.POSTGRES_DB }}"
+            "POSTGRES_USER:${{ secrets.POSTGRES_USER }}"
+            "POSTGRES_PASSWORD:${{ secrets.POSTGRES_PASSWORD }}"
+            "POSTGRES_HOST:${{ secrets.POSTGRES_HOST }}"
+            "POSTGRES_PORT:${{ secrets.POSTGRES_PORT }}"
+            "TELEGRAM_BOT_TOKEN:${{ secrets.TELEGRAM_BOT_TOKEN }}"
+          )
+          
+          for secret in "${secrets[@]}"; do
+            name="${secret%%:*}"
+            value="${secret#*:}"
+            if [ -z "$value" ]; then
+              echo "❌ $name не установлен!"
+            else
+              echo "✅ $name присутствует (длина: ${#value})"
+            fi
+          done
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Deploy to Server
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_HUB_USERNAME }}
+          IMAGE_TAG: ${{ github.sha }}
+          SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+          SERVER_IP: ${{ secrets.DEPLOY_SERVER_IP }}
+          SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB || 'test_db' }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER || 'postgres' }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD || 'postgres' }}
+          POSTGRES_HOST: ${{ secrets.POSTGRES_HOST || 'db' }}
+          POSTGRES_PORT: ${{ secrets.POSTGRES_PORT || '5432' }}
+          STRIPE_API_KEY: ${{ secrets.STRIPE_API_KEY }}
+          STRIPE_PUBLIC_KEY: ${{ secrets.STRIPE_PUBLIC_KEY }}
+        run: |
+          echo "Подготовка к деплою..."
+          echo "DOCKER_USER: $DOCKER_USER"
+          echo "IMAGE_TAG: $IMAGE_TAG"
+          echo "Полное имя образа: $DOCKER_USER/lsm-system-drf:$IMAGE_TAG"
+          
+          # Создаем deploy.sh с подстановкой переменных
+          cat << EOF > deploy.sh
+          #!/bin/bash
+          set -ex
+          DOCKER_USER='$DOCKER_USER'
+          IMAGE_TAG='$IMAGE_TAG'
+          echo "Попытка загрузки образа: \${DOCKER_USER}/lsm-system-drf:\${IMAGE_TAG}"
+          docker pull \${DOCKER_USER}/lsm-system-drf:\${IMAGE_TAG} || {
+            echo "Не удалось загрузить образ, пробуем latest..."
+            docker pull \${DOCKER_USER}/lsm-system-drf:latest
+          }
+          docker stop lsm-system-drf || true
+          docker rm lsm-system-drf || true
+          docker run -d --name lsm-system-drf -p 80:8000 \\
+            -e SECRET_KEY='$SECRET_KEY' \\
+            -e POSTGRES_DB='$POSTGRES_DB' \\
+            -e POSTGRES_USER='$POSTGRES_USER' \\
+            -e POSTGRES_PASSWORD='$POSTGRES_PASSWORD' \\
+            -e POSTGRES_HOST='$POSTGRES_HOST' \\
+            -e POSTGRES_PORT='$POSTGRES_PORT' \\
+            -e CELERY_BROKER_URL='redis://redis:6379/0' \\
+            -e STRIPE_API_KEY='$STRIPE_API_KEY' \\
+            -e STRIPE_PUBLIC_KEY='$STRIPE_PUBLIC_KEY' \\
+            \${DOCKER_USER}/lsm-system-drf:\${IMAGE_TAG}
+          EOF
+          
+          echo "Содержимое deploy.sh:"
+          cat deploy.sh
+          
+          echo "Копируем deploy.sh на сервер..."
+          scp -o StrictHostKeyChecking=no deploy.sh ${SSH_USER}@${SERVER_IP}:/tmp/deploy.sh
+          
+          echo "Запускаем деплой..."
+          ssh -o StrictHostKeyChecking=no ${SSH_USER}@${SERVER_IP} "
+            chmod +x /tmp/deploy.sh &&
+            /tmp/deploy.sh &&
+            rm /tmp/deploy.sh
+          "

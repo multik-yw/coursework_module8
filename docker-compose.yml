@@ -1,0 +1,110 @@
+services:
+  db:
+    image: postgres:16.0
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+    command: sh -c "sleep 10 && python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  nginx:
+    build:
+      context: ./nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - static_volume:/app/staticfiles
+    depends_on:
+      - web
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/health/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  redis:
+    image: redis:7.0
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  celery:
+    build: .
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    command: celery -A config worker --loglevel=info
+    depends_on:
+      - db
+      - redis
+    env_file:
+      - .env
+    healthcheck:
+      test: [ "CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME | grep -q pong" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    volumes:
+      - .:/code
+
+  celery-beat:
+    build: .
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    command: celery -A config beat --loglevel=info
+    depends_on:
+      - db
+      - redis
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping -d celerybeat@$$HOSTNAME | grep -q pong || exit 0"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+    volumes:
+      - .:/code
+
+volumes:
+  postgres_data:
+  static_volume:
+  redis_data:
