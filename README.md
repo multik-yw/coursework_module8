@@ -17,18 +17,18 @@ Habit Tracker — это приложение для отслеживания п
 - git clone https://github.com/multik-yw/coursework_module8.git
 
 2. **Создайте файл .env в корне проекта и добавьте необходимые переменные окружения**:
- SECRET_KEY=<ваш-secret-key>
- POSTGRES_DB=<имя-бд>
- POSTGRES_USER=<пользователь-бд>
- POSTGRES_PASSWORD=<пароль-бд>
+  SECRET_KEY=<ваш-secret-key>;
+  POSTGRES_DB=<имя-бд>;
+  POSTGRES_USER=<пользователь-бд>;
+  POSTGRES_PASSWORD=<пароль-бд>;
 
-3. **Запустите проект:**
+4. **Запустите проект:**
 docker-compose up --build
 
-4. **Примените миграции:**
+5. **Примените миграции:**
 docker-compose exec web python manage.py migrate
 
-5. **После успешного запуска приложения, оно будет доступно по адресу** http://localhost:8000.
+6. **После успешного запуска приложения, оно будет доступно по адресу** http://localhost:8000.
 
 **Для запуска тестов используйте следующую команду:**
 docker-compose run web python manage.py test
