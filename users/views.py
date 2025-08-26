@@ -22,44 +22,38 @@ class UserViewSet(GenericViewSet):
     serializer_class = UserSerializer
 
     def get_permissions(self):
-        if self.action == 'list':
+        if self.action == "list":
             return [permissions.IsAdminUser()]
         return [permissions.IsAuthenticated()]
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=["get"])
     def list(self, request):
         queryset = self.get_queryset()
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-    @action(detail=True, methods=['get', 'patch', 'delete'])
+    @action(detail=True, methods=["get", "patch", "delete"])
     def retrieve(self, request, pk=None):
         user = self.get_object()
-        if request.method == 'GET':
+        if request.method == "GET":
             serializer = self.get_serializer(user)
             return Response(serializer.data)
-        elif request.method == 'PATCH':
+        elif request.method == "PATCH":
             return self.update(request, pk)
-        elif request.method == 'DELETE':
+        elif request.method == "DELETE":
             return self.destroy(request, pk)
 
-    @action(detail=False, methods=['patch'])
+    @action(detail=False, methods=["patch"])
     def set_telegram_id(self, request):
         user = request.user
-        telegram_id = request.data.get('telegram_id')
+        telegram_id = request.data.get("telegram_id")
 
         if not telegram_id:
-            return Response(
-                {"error": "telegram_id обязателен"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "telegram_id обязателен"}, status=status.HTTP_400_BAD_REQUEST)
 
         user.telegram_id = telegram_id
         user.save()
-        return Response(
-            {"status": "Telegram ID успешно обновлен"},
-            status=status.HTTP_200_OK
-        )
+        return Response({"status": "Telegram ID успешно обновлен"}, status=status.HTTP_200_OK)
 
     def update(self, request, *args, **kwargs):
         instance = self.get_object()

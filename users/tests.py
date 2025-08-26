@@ -6,12 +6,8 @@ from .models import User
 
 class UserTests(APITestCase):
     def setUp(self):
-        self.admin = User.objects.create_superuser(
-            email="admin@example.com", password="adminpass"
-        )
-        self.user = User.objects.create_user(
-            email="user@example.com", password="userpass"
-        )
+        self.admin = User.objects.create_superuser(email="admin@example.com", password="adminpass")
+        self.user = User.objects.create_user(email="user@example.com", password="userpass")
         self.user_data = {
             "email": "newuser@example.com",
             "password": "newpass123",
@@ -95,9 +91,7 @@ class UserTests(APITestCase):
         data = {"telegram_id": "should_not_work"}
         response = self.client.patch(url, data)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.data["detail"], "Вы можете редактировать только свой аккаунт"
-        )
+        self.assertEqual(response.data["detail"], "Вы можете редактировать только свой аккаунт")
 
     def test_user_delete_admin(self):
         self.client.force_authenticate(user=self.admin)
@@ -118,9 +112,7 @@ class UserTests(APITestCase):
         url = reverse("user-detail", args=[self.admin.id])
         response = self.client.delete(url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response.data["detail"], "Вы можете удалить только свой аккаунт"
-        )
+        self.assertEqual(response.data["detail"], "Вы можете удалить только свой аккаунт")
 
     def test_email_uniqueness(self):
         url = reverse("register")
