@@ -4,6 +4,7 @@ from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from users.models import User
 from django.core.exceptions import ValidationError
+from config.celery import app as celery_app
 
 
 class Habit(models.Model):
