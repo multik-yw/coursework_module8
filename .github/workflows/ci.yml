@@ -102,25 +102,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-        with:
-          version: 1.5.1
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-
-      - name: Cache Poetry virtualenv
-        uses: actions/cache@v3
-        with:
-          path: .venv
-          key: poetry-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
-          restore-keys: |
-            poetry-${{ runner.os }}-
-
-      - name: Install dependencies with Poetry
+      - name: Install dependencies
         run: |
-          poetry config virtualenvs.in-project true
-          poetry install --no-interaction --no-ansi
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Debug DB connection
         run: |
@@ -129,22 +114,23 @@ jobs:
           echo "Port: $POSTGRES_PORT"
           echo "User: $POSTGRES_USER"
           echo "DB: $POSTGRES_DB"
-          echo "Password: ${POSTGRES_PASSWORD:0:1}..." 
+          echo "Password: ${POSTGRES_PASSWORD:0:1}..."
 
       - name: Test PostgreSQL connection
         run: |
           PGPASSWORD=${{ secrets.POSTGRES_PASSWORD || 'postgres' }} \
-          psql -h localhost -p 5432 -U ${{ secrets.POSTGRES_USER || 'postgres' }} -d ${{ secrets.POSTGRES_DB || 'test_db' }} -c "SELECT 1"
+          psql -h localhost -p 5432 -U ${{ secrets.POSTGRES_USER || 'postgres' }} -d ${{ secrets.POSTGRES_DB || 
+          'test_db' }} -c "SELECT 1"
 
       - name: Run migrations
         env:
-          DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}  # Добавьте это
+          DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_DB: ${{ secrets.POSTGRES_DB || 'test_db' }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER || 'postgres' }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD || 'postgres' }}
-        run: poetry run python manage.py migrate
+        run: python manage.py migrate
 
       - name: Run tests
         env:
@@ -153,8 +139,8 @@ jobs:
           POSTGRES_PORT: 5432
           POSTGRES_DB: ${{ secrets.POSTGRES_DB || 'test_db' }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER || 'postgres' }}
-          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD || 'postgres' }}  
-        run: poetry run python manage.py test
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD || 'postgres' }}
+        run: python manage.py test
 
   build:
     needs: test
