@@ -124,7 +124,7 @@ jobs:
 
       - name: Run migrations
         env:
-          DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+          SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_DB: ${{ secrets.POSTGRES_DB || 'test_db' }}
